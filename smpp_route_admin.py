@@ -1,6 +1,6 @@
 import json
 import os
-from logger import get_logger
+from smpp_logger import get_logger
 import uuid
 
 import Pyro5.api
