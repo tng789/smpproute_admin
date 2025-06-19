@@ -35,7 +35,7 @@ class Commands(object):
         available, configs = self._is_senderid_available(sender_id)
 
         if available and configs:
-            configs["enabled"] = True
+            configs["enabled"] = 3                  #deduct 1 for every unsuccessful attempt until 0 
             self.smpp_manager.update(self.session_id, sender_id, configs)
 
             
@@ -45,7 +45,7 @@ class Commands(object):
         available, configs = self._is_senderid_available(sender_id)
 
         if available and configs:
-            configs["enabled"] = False
+            configs["enabled"] = 0
             self.smpp_manager.update(self.session_id, sender_id, configs)
 
     def help(self):
