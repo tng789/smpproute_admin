@@ -5,10 +5,34 @@ import json
 from pathlib import Path
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
+import Pyro5.errors
+import sys
 
+class TimeoutProxy:
+    def __init__(self, uri, timeout=5):
+        self.proxy = Pyro5.client.Proxy(uri)
+        self.proxy._pyroTimeout = timeout  # Set timeout for all calls
+
+    def __getattr__(self, name):
+        """Delegate method calls to the proxy with timeout handling."""
+        method = getattr(self.proxy, name)
+        
+        def wrapper(*args, **kwargs):
+            try:
+                return method(*args, **kwargs)
+            except Pyro5.errors.TimeoutError:
+                print(f"Timeout occurred for method {name} after {self.proxy._pyroTimeout} seconds")
+                raise  # Re-raise or handle as needed
+        return wrapper
+
+    def __del__(self):
+        """Clean up proxy connection."""
+        self.proxy._pyroRelease()
+        sys.exit(1)
+        
 class Commands(object):
-    def __init__(self, smpp_manager):
-        self.smpp_manager = smpp_manager
+    def __init__(self, proxy):
+        self.smpp_manager = proxy
         self.cmd_set = {"login":self.login,
                         "help":self.help,
                         "dump":self.dump, 
@@ -18,7 +42,7 @@ class Commands(object):
                         "enable":self.enable,
                         "disable":self.disable
         }
-        self.logged_in, self.session_id = self.login()
+        self.session_id = self.login()
 
     def _is_senderid_available(self, sender_id):
         if not sender_id:
@@ -26,18 +50,26 @@ class Commands(object):
             return False, None                #if available, return True and the configs
                                                    #otherwise return False and None
         
+        # if the sender_id is available, download the configs
+        # try:
         configs = self.smpp_manager.download(self.session_id, sender_id)
         return True, configs 
+        # except Pyro5.errors.TimeoutError:
+            # print(f"timeout error occurred when trying to download the configs for {sender_id}")
+            # return False, None
 
     def enable(self, *args):
         sender_id = args[0].rstrip().lstrip() if args else None
 
         available, configs = self._is_senderid_available(sender_id)
 
-        if available and configs:
+        if configs:
             configs["enabled"] = 3                  #deduct 1 for every unsuccessful attempt until 0 
             self.smpp_manager.update(self.session_id, sender_id, configs)
-
+            return True
+        elif not available or not configs:
+            print(f"time out happened...")
+            return False
             
     def disable(self, *args):
         sender_id = args[0].rstrip().lstrip() if args else None
@@ -61,12 +93,12 @@ class Commands(object):
             result, sid = self.smpp_manager.authenticate(user, password)
             if result : 
                 print(f"you are successfully logged in, session id is {sid}")
-                return True, sid
+                return sid
             else:
                 print("Auth failed. try again...")
                 retry -= 1
         print("you have no more retry chances, bye!")
-        return False, None
+        return ""
 
     def list(self, *gateway):
         # print(f"{len(gateway)=}")
@@ -142,6 +174,13 @@ class Commands(object):
     def command_loop(self):
         session = PromptSession(">>> ", history=FileHistory(Path.home()/".command_history.txt"))
 
+        if not self.session_id:
+            print("authentication failed, exiting ...")
+            self.smpp_manager._close()
+            return
+
+        print("you are successfully authenticated,\nplease input your command, type help to list the commands ")
+
         while True:
             try:
                 cmd_line = session.prompt()
@@ -159,12 +198,15 @@ class Commands(object):
                 if cmd == "quit": break
                 
             except KeyboardInterrupt:
-                print("\nExiting...")
+                print("\nKey board interrupt, Exiting...") 
+                self.quit()
                 break
             except EOFError:
-                print("\nExiting via Ctrl+D...")
+                print("\nCtrl+D detected, exiting ...")
+                self.quit()
                 break
 
+        # self.smpp_manager._close()
 #    def command_loop(self):
 #
 #        print("you are successfully authenticated,\nplease input your command, type help to list the commands ")
@@ -182,8 +224,7 @@ class Commands(object):
 #                self.cmd_set[cmd](*args)
 #            
 #            if cmd == "quit":
-#                break
-
+#       break
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 

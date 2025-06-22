@@ -54,6 +54,13 @@ class smpp_manager(object):
         return True
 
     def download(self, sid, channel):
+        if sid not in self.active_sessions:
+            logger.info(f"smpp route {channel} info downloaded...")
+            return None
+
+        if channel == "":
+            return self.download_all()
+
         config = Path.home() / prefix / f"{channel}.json"
         if not config.exists():
             logger.error(f"Configuration file {config} does not exist.")
@@ -61,17 +68,12 @@ class smpp_manager(object):
         with open(config, "rt") as f:
             try:
                 smpp_routes = json.load(f)
-                self.route= smpp_routes
+                # self.route= smpp_routes
+                return smpp_routes
             except json.JSONDecodeError as e:
                 logger.error(f"Error decoding JSON from {config}: {e}")
                 return None
             
-        if sid in self.active_sessions:
-            logger.info(f"smpp route {channel} info downloaded...")
-            return self.route
-        else:
-            return None
-
     def update(self, sid, sender_id, route):
         if sid not in self.active_sessions:
             return False
@@ -83,7 +85,7 @@ class smpp_manager(object):
         logger.info(f"smpp route {sender_id} info downloaded...")
         return True
 
-    def download_all(self, sid):
+    def download_all(self):
         directory = Path.home() / prefix 
         # print(directory)
         json_files = []
